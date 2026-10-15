@@ -42,3 +42,7 @@ npm start
 
 - 議事録は Bot のメモリ上にだけ保持します。`/stop` の前に Bot を止めると、それまでの内容は失われます
 - 要約は Claude Code のログインアカウントの利用枠を使います
+
+## ライセンス
+
+[The Unlicense](LICENSE)（パブリックドメイン）
