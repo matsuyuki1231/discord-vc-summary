@@ -38,7 +38,7 @@ export class Session {
     this.voiceChannel = voiceChannel;
     this.textChannel = textChannel;
     this.startedAt = new Date();
-    /** @type {{ at: number, userId: string, name: string, text: string }[]} */
+    /** @type {{ at: number, userId: string, name: string, text: string, source: 'voice' | 'chat' }[]} */
     this.entries = [];
     /** 文字起こし待ち・実行中の Promise */
     this.pending = new Set();
@@ -166,7 +166,26 @@ export class Session {
   async transcribeSegment(userId, at, pcm) {
     const text = await transcribe(pcm, this.whisperPrompt());
     if (!text) return;
-    this.entries.push({ at, userId, name: this.displayName(userId), text });
+    this.entries.push({ at, userId, name: this.displayName(userId), text, source: 'voice' });
+  }
+
+  /**
+   * 聞き専チャンネル（/start を実行したチャンネル）でのチャット発言を議事録に加える。
+   * 関係のない雑談を拾わないよう、録音中の VC に参加している人の発言だけを対象にする。
+   * @param {import('discord.js').Message} message
+   */
+  addChatMessage(message) {
+    if (this.stopped || message.author.bot || !this.isInVoice(message.author.id)) return;
+    // cleanContent はメンションを名前に置き換えた本文
+    const text = message.cleanContent.trim();
+    if (!text) return;
+    this.entries.push({
+      at: message.createdTimestamp,
+      userId: message.author.id,
+      name: this.displayName(message.author.id),
+      text,
+      source: 'chat',
+    });
   }
 
   displayName(userId) {
@@ -192,7 +211,7 @@ export class Session {
   transcript() {
     return [...this.entries]
       .sort((a, b) => a.at - b.at)
-      .map((e) => `[${timeFormat.format(e.at)}] ${e.name}: ${e.text}`)
+      .map((e) => `[${timeFormat.format(e.at)}] ${e.name}${e.source === 'chat' ? '（チャット）' : ''}: ${e.text}`)
       .join('\n');
   }
 

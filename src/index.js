@@ -34,7 +34,13 @@ const commands = [
 const sessions = new Map();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessages,
+    // 聞き専チャンネルの発言を読むため（Developer Portal での有効化が必要な特権 Intent）
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 client.once(Events.ClientReady, async (c) => {
@@ -263,6 +269,13 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       allowedMentions: { users: [newState.id] },
     })
     .catch((err) => console.warn('入室通知の送信に失敗しました:', err.message));
+});
+
+// /start を実行したチャンネルを聞き専チャンネルとして扱い、そこでのチャットも議事録に加える
+client.on(Events.MessageCreate, (message) => {
+  if (!message.inGuild()) return;
+  const session = sessions.get(message.guildId);
+  if (session && message.channelId === session.textChannel.id) session.addChatMessage(message);
 });
 
 // 終了時は VC から抜けてからプロセスを終える
