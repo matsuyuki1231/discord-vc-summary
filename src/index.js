@@ -18,6 +18,8 @@ for (const key of ['DISCORD_TOKEN', 'OPENAI_API_KEY']) {
 }
 
 const DISCORD_MESSAGE_LIMIT = 2000;
+// 添付ファイルの上限（Discord の無料枠 10MB に余裕を持たせる）
+const TRANSCRIPT_FILE_LIMIT = 8 * 1024 * 1024;
 
 const commands = [
   new SlashCommandBuilder()
@@ -205,13 +207,13 @@ async function requireSessionMember(interaction) {
   return session;
 }
 
-/** @returns {Promise<{ header: string, body: string, fileName: string }>} */
+/** @returns {Promise<{ header: string, body: string, transcript: string, stamp: string }>} */
 async function buildSummary(session) {
   const range = `${formatTime(session.startedAt)}〜${formatTime(new Date())}`;
   const header = `📝 **${session.voiceChannel.guild.name} / ${session.voiceChannel.name}** の要約（${range}）`;
   const transcript = session.transcript();
   const body = transcript ? await summarize(transcript) : '記録された発言はありませんでした。';
-  return { header, body, fileName: `vc-summary-${fileTimestamp(session.startedAt)}.txt` };
+  return { header, body, transcript, stamp: fileTimestamp(session.startedAt) };
 }
 
 function formatTime(date) {
@@ -242,17 +244,27 @@ function fileTimestamp(date) {
 
 /**
  * 要約を DM で送る。1 メッセージに収まらない長さなら、本文を txt ファイルにして添付する。
+ * 文字起こしの原文も、添付できるサイズなら txt ファイルで添える。
  * @returns {Promise<import('discord.js').GuildMember[]>} DMを送れなかったメンバー
  */
-async function sendDMs(members, { header, body, fileName }) {
-  const text = `${header}\n\n${body}`;
-  const message =
-    text.length <= DISCORD_MESSAGE_LIMIT
-      ? { content: text }
-      : {
-          content: `${header}\n\n要約が長いため、テキストファイルで送ります。`,
-          files: [new AttachmentBuilder(Buffer.from(body, 'utf8'), { name: fileName })],
-        };
+async function sendDMs(members, { header, body, transcript, stamp }) {
+  const files = [];
+  const notes = [];
+  if (transcript) {
+    const data = Buffer.from(transcript, 'utf8');
+    if (data.length <= TRANSCRIPT_FILE_LIMIT) {
+      files.push(new AttachmentBuilder(data, { name: `vc-transcript-${stamp}.txt` }));
+    } else {
+      notes.push('文字起こしの原文は 8MB を超えたため添付していません。');
+    }
+  }
+
+  let content = [header, body, ...notes].join('\n\n');
+  if (content.length > DISCORD_MESSAGE_LIMIT) {
+    content = [header, '要約が長いため、テキストファイルで送ります。', ...notes].join('\n\n');
+    files.unshift(new AttachmentBuilder(Buffer.from(body, 'utf8'), { name: `vc-summary-${stamp}.txt` }));
+  }
+  const message = { content, files };
   const failed = [];
   for (const member of members) {
     try {
