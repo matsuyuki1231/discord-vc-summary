@@ -1,4 +1,5 @@
 import {
+  AttachmentBuilder,
   Client,
   Events,
   GatewayIntentBits,
@@ -125,8 +126,8 @@ async function handleSummary(interaction) {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   await session.settle();
-  const body = await buildSummary(session);
-  const failed = await sendDMs([interaction.member], body);
+  const summary = await buildSummary(session);
+  const failed = await sendDMs([interaction.member], summary);
   if (failed.length > 0) {
     return interaction.editReply('⚠️ DMを送れませんでした。サーバーメンバーからのDMを許可しているか確認してください。');
   }
@@ -166,15 +167,15 @@ async function finishSession(session, headline) {
     return;
   }
 
-  let body;
+  let summary;
   try {
-    body = await buildSummary(session);
+    summary = await buildSummary(session);
   } catch (err) {
     console.error('要約の作成に失敗しました:', err);
     await session.textChannel.send(`${headline}\n⚠️ 要約の作成に失敗したため、DMは送信していません。`);
     return;
   }
-  const failed = await sendDMs(recipients, body);
+  const failed = await sendDMs(recipients, summary);
   const sent = recipients.filter((m) => !failed.includes(m));
 
   const lines = [headline];
@@ -204,12 +205,13 @@ async function requireSessionMember(interaction) {
   return session;
 }
 
+/** @returns {Promise<{ header: string, body: string, fileName: string }>} */
 async function buildSummary(session) {
   const range = `${formatTime(session.startedAt)}〜${formatTime(new Date())}`;
   const header = `📝 **${session.voiceChannel.guild.name} / ${session.voiceChannel.name}** の要約（${range}）`;
   const transcript = session.transcript();
-  if (!transcript) return `${header}\n\n記録された発言はありませんでした。`;
-  return `${header}\n\n${await summarize(transcript)}`;
+  const body = transcript ? await summarize(transcript) : '記録された発言はありませんでした。';
+  return { header, body, fileName: `vc-summary-${fileTimestamp(session.startedAt)}.txt` };
 }
 
 function formatTime(date) {
@@ -222,39 +224,45 @@ function formatTime(date) {
   });
 }
 
-/** @returns {Promise<import('discord.js').GuildMember[]>} DMを送れなかったメンバー */
-async function sendDMs(members, body) {
-  const chunks = splitMessage(body);
+/** ファイル名用の時刻（例: 2026-10-20-1530） */
+function fileTimestamp(date) {
+  // sv-SE ロケールは「YYYY-MM-DD HH:mm」形式になる
+  return date
+    .toLocaleString('sv-SE', {
+      timeZone: process.env.TZ || 'Asia/Tokyo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    .replace(' ', '-')
+    .replace(':', '');
+}
+
+/**
+ * 要約を DM で送る。1 メッセージに収まらない長さなら、本文を txt ファイルにして添付する。
+ * @returns {Promise<import('discord.js').GuildMember[]>} DMを送れなかったメンバー
+ */
+async function sendDMs(members, { header, body, fileName }) {
+  const text = `${header}\n\n${body}`;
+  const message =
+    text.length <= DISCORD_MESSAGE_LIMIT
+      ? { content: text }
+      : {
+          content: `${header}\n\n要約が長いため、テキストファイルで送ります。`,
+          files: [new AttachmentBuilder(Buffer.from(body, 'utf8'), { name: fileName })],
+        };
   const failed = [];
   for (const member of members) {
     try {
-      for (const chunk of chunks) await member.send({ content: chunk, allowedMentions: { parse: [] } });
+      await member.send({ ...message, allowedMentions: { parse: [] } });
     } catch (err) {
       console.warn(`DMの送信に失敗しました (${member.user.tag}):`, err.message);
       failed.push(member);
     }
   }
   return failed;
-}
-
-/** Discord の文字数制限に収まるよう、行単位で分割する */
-function splitMessage(text) {
-  const chunks = [];
-  let current = '';
-  for (const line of text.split('\n')) {
-    // 1 行だけで制限を超える場合は強制的に切る
-    for (let i = 0; i < line.length || i === 0; i += DISCORD_MESSAGE_LIMIT) {
-      const piece = line.slice(i, i + DISCORD_MESSAGE_LIMIT);
-      if (current.length + piece.length + 1 > DISCORD_MESSAGE_LIMIT) {
-        chunks.push(current);
-        current = piece;
-      } else {
-        current = current ? `${current}\n${piece}` : piece;
-      }
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks;
 }
 
 // 録音中のVCに入ってきた人へ、/start を実行したチャンネルで録音中であることを知らせる
