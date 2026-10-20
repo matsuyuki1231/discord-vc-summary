@@ -7,7 +7,6 @@ export const OUTPUT_SAMPLE_RATE = 16000;
 /**
  * 48kHz ステレオ PCM を 16kHz モノラル PCM に変換する。
  * 隣接 3 フレーム × 2ch の平均を取ることで、簡易的なローパスを兼ねる。
- * opusscript の decode 結果は WASM メモリを共有しているため、必ず新しい Buffer にコピーして返す。
  */
 export function toMono16k(pcm) {
   const frameCount = Math.floor(pcm.length / (2 * INPUT_CHANNELS));

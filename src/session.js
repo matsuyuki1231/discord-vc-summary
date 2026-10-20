@@ -4,7 +4,7 @@ import {
   entersState,
   joinVoiceChannel,
 } from '@discordjs/voice';
-import OpusScript from 'opusscript';
+import opus from '@discordjs/opus';
 import { durationSec, rms, toMono16k, OUTPUT_SAMPLE_RATE } from './audio.js';
 import { transcribe } from './transcribe.js';
 
@@ -98,7 +98,8 @@ export class Session {
     const stream = this.connection.receiver.subscribe(userId, {
       end: { behavior: EndBehaviorType.AfterSilence, duration: SILENCE_MS },
     });
-    const decoder = new OpusScript(48000, 2, OpusScript.Application.VOIP);
+    // @discordjs/opus は OpusEncoder クラスがデコードも担う
+    const decoder = new opus.OpusEncoder(48000, 2);
     let chunks = [];
     let bytes = 0;
     let segmentStart = Date.now();
@@ -115,7 +116,6 @@ export class Session {
       if (finished) return;
       finished = true;
       flush();
-      decoder.delete();
       this.activeCaptures.delete(userId);
       stream.destroy();
     };

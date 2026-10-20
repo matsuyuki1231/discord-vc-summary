@@ -8,9 +8,9 @@
     "check": "node --check src/index.js && node --check src/session.js && node --check src/audio.js && node --check src/transcribe.js && node --check src/summarize.js"
   },
   "dependencies": {
+    "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.19.2",
-    "discord.js": "^14.27.0",
-    "opusscript": "^0.1.1"
+    "discord.js": "^14.27.0"
   },
   "type": "module",
   "private": true,
